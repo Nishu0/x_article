@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XArticle</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 380px;
+      height: 500px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: #000;
+      color: #e7e9ea;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #2f3336;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Main Content */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Bottom Navigation */
+    .bottom-nav {
+      display: flex;
+      border-top: 1px solid #2f3336;
+      background: #000;
+      padding: 4px 0;
+    }
+
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 6px 4px;
+      cursor: pointer;
+      color: #71767b;
+      transition: color 0.2s;
+      border: none;
+      background: none;
+      font-family: inherit;
+    }
+
+    .nav-item:hover {
+      color: #e7e9ea;
+    }
+
+    .nav-item.active {
+      color: #1d9bf0;
+    }
+
+    .nav-icon {
+      font-size: 18px;
+    }
+
+    .nav-label {
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #71767b;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .empty-state p {
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* Article Card */
+    .article-card {
+      background: #16181c;
+      border-radius: 16px;
+      padding: 12px;
+      margin-bottom: 12px;
+      transition: all 0.2s;
+      cursor: pointer;
+      position: relative;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .article-card:hover {
+      background: #1d1f23;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .article-image {
+      width: 64px;
+      height: 64px;
+      border-radius: 10px;
+      object-fit: cover;
+      background: #2f3336;
+      flex-shrink: 0;
+    }
+
+    .article-image-placeholder {
+      width: 64px;
+      height: 64px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #1d9bf0 0%, #1a8cd8 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+
+    .article-content {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .article-title {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.3;
+      color: #e7e9ea;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .article-author {
+      font-size: 12px;
+      color: #71767b;
+    }
+
+    .article-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .progress-bar {
+      flex: 1;
+      height: 4px;
+      background: #2f3336;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #1d9bf0, #1a8cd8);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+
+    .progress-text {
+      font-size: 11px;
+      color: #71767b;
+      white-space: nowrap;
+    }
+
+    .remove-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      opacity: 0;
+      transition: all 0.2s;
+    }
+
+    .article-card:hover .remove-btn {
+      opacity: 1;
+    }
+
+    .remove-btn:hover {
+      background: rgba(239, 68, 68, 0.3);
+      transform: scale(1.1);
+    }
+
+    /* Authors Section */
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #71767b;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .author-input-container {
+      margin-bottom: 16px;
+    }
+
+    .author-input-wrapper {
+      display: flex;
+      gap: 8px;
+    }
+
+    .author-input {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid #2f3336;
+      background: #16181c;
+      color: #e7e9ea;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .author-input:focus {
+      border-color: #1d9bf0;
+    }
+
+    .author-input::placeholder {
+      color: #71767b;
+    }
+
+    .add-btn {
+      padding: 12px 20px;
+      border-radius: 12px;
+      border: none;
+      background: #1d9bf0;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .add-btn:hover {
+      background: #1a8cd8;
+    }
+
+    .add-btn:disabled {
+      background: #1d9bf0;
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .author-limit {
+      font-size: 12px;
+      color: #71767b;
+      margin-top: 8px;
+      text-align: right;
+    }
+
+    .author-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: #16181c;
+      border-radius: 12px;
+      margin-bottom: 8px;
+    }
+
+    .author-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1d9bf0 0%, #1a8cd8 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .author-info {
+      flex: 1;
+    }
+
+    .author-name {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .author-handle {
+      font-size: 13px;
+      color: #71767b;
+    }
+
+    .author-remove {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      color: #71767b;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: all 0.2s;
+    }
+
+    .author-remove:hover {
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+    }
+
+    /* Settings */
+    .settings-section {
+      margin-bottom: 20px;
+    }
+
+    .setting-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px;
+      background: #16181c;
+      border-radius: 12px;
+      margin-bottom: 8px;
+    }
+
+    .setting-label {
+      font-size: 14px;
+    }
+
+    .setting-desc {
+      font-size: 12px;
+      color: #71767b;
+      margin-top: 2px;
+    }
+
+    /* Toggle Switch */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #2f3336;
+      border-radius: 24px;
+      transition: 0.3s;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: #1d9bf0;
+    }
+
+    .toggle input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+
+    .danger-btn {
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid #ef4444;
+      background: transparent;
+      color: #ef4444;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.2s;
+    }
+
+    .danger-btn:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 20px;
+      background: #1d9bf0;
+      color: white;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      z-index: 1000;
+      animation: slideUp 0.3s ease;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+    }
+
+    .check-btn {
+      padding: 12px;
+      border-radius: 12px;
+      border: none;
+      background: #1d9bf0;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 12px;
+      transition: all 0.2s;
+    }
+
+    .check-btn:hover {
+      background: #1a8cd8;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>
+      <span>📚</span>
+      XArticle
+    </h1>
+  </div>
+
+  <div class="main-content">
+    <div id="reading-tab" class="tab-content active">
+      <div id="articles-list"></div>
+    </div>
+
+    <div id="new-tab" class="tab-content">
+      <div id="new-articles-list"></div>
+    </div>
+
+    <div id="authors-tab" class="tab-content">
+      <div class="section-title">Follow Authors (max 3)</div>
+      <div class="author-input-container">
+        <div class="author-input-wrapper">
+          <input type="text" class="author-input" id="author-input" placeholder="@username" maxlength="15">
+          <button class="add-btn" id="add-author-btn">Add</button>
+        </div>
+        <div class="author-limit" id="author-limit">0/3</div>
+      </div>
+      <div id="authors-list"></div>
+      <button class="check-btn" id="check-articles-btn">Check for New Articles</button>
+    </div>
+
+    <div id="settings-tab" class="tab-content">
+      <div class="settings-section">
+        <div class="section-title">Notifications</div>
+        <div class="setting-item">
+          <div>
+            <div class="setting-label">New Article Alerts</div>
+            <div class="setting-desc">Get notified when authors post</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="notifications-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="section-title">Data</div>
+        <button class="danger-btn" id="clear-all-btn">Clear All Reading Progress</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-tab="reading">
+      <span class="nav-icon">📖</span>
+      <span class="nav-label">Reading</span>
+    </button>
+    <button class="nav-item" data-tab="new">
+      <span class="nav-icon">✨</span>
+      <span class="nav-label">New</span>
+    </button>
+    <button class="nav-item" data-tab="authors">
+      <span class="nav-icon">👤</span>
+      <span class="nav-label">Authors</span>
+    </button>
+    <button class="nav-item" data-tab="settings">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Settings</span>
+    </button>
+  </nav>
+
+  <script src="popup.js"></script>
+</body>
+</html>
