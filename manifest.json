@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "X Article Reading Progress",
+  "version": "1.0.0",
+  "description": "Tracks reading progress on X long-form articles and auto-scrolls to saved position",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*/articles/*", "https://twitter.com/*/articles/*"],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
