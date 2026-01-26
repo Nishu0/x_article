@@ -123,6 +123,11 @@ let cachedMetadata: ArticleMetadata | null = null;
 
 async function saveProgress(): Promise<void> {
   try {
+    // Only save on actual article/status pages
+    if (!isArticlePage()) {
+      return;
+    }
+    
     // Use document scrolling metrics
     const scrollTop = window.scrollY || document.documentElement.scrollTop;
     const docHeight = Math.max(
@@ -140,6 +145,18 @@ async function saveProgress(): Promise<void> {
       return;
     }
 
+    const url = normalizeUrl(window.location.href);
+    const key = getStorageKey(url);
+    
+    // Check existing progress - only save if new progress is HIGHER
+    const result = await chrome.storage.local.get(key);
+    const existingProgress = result[key] as ArticleProgress | undefined;
+    
+    if (existingProgress && existingProgress.scrollPercentage >= scrollPct) {
+      console.log(`[X Article Progress] Existing progress (${existingProgress.scrollPercentage}%) >= current (${scrollPct}%), not overwriting`);
+      return;
+    }
+
     // Extract metadata once and cache it
     if (!cachedMetadata) {
       cachedMetadata = extractArticleMetadata();
@@ -147,7 +164,7 @@ async function saveProgress(): Promise<void> {
     }
 
     const progress: ArticleProgress = {
-      url: normalizeUrl(window.location.href),
+      url: url,
       scrollPosition: scrollTop,
       scrollPercentage: scrollPct,
       lastRead: Date.now(),
@@ -157,7 +174,6 @@ async function saveProgress(): Promise<void> {
       authorHandle: cachedMetadata.authorHandle || undefined,
     };
 
-    const key = getStorageKey(progress.url);
     await chrome.storage.local.set({ [key]: progress });
     console.log(`[X Article Progress] Saved: ${progress.scrollPercentage}% (${progress.scrollPosition}px)`);
   } catch (error) {
@@ -335,9 +351,22 @@ const observer = new MutationObserver(() => {
   if (window.location.href !== lastUrl) {
     lastUrl = window.location.href;
     console.log("[X Article Progress] URL changed to:", lastUrl);
+    
     // Remove old button
     const btn = document.getElementById("x-progress-continue-btn");
     if (btn) btn.remove();
+    
+    // Clean up old scroll handlers when navigating away
+    if (scrollHandler) {
+      window.removeEventListener("scroll", scrollHandler);
+      document.removeEventListener("scroll", scrollHandler);
+      scrollHandler = null;
+      console.log("[X Article Progress] Cleaned up scroll listeners");
+    }
+    
+    // Reset cached metadata for new page
+    cachedMetadata = null;
+    
     // Reset and re-init
     currentUrl = "";
     isInitialized = false;
@@ -371,27 +400,22 @@ interface StoredProgress {
   authorHandle?: string;
 }
 
-// CSS for the progress bar
+// CSS for the progress bar - embedded inside article card
 const feedProgressStyles = document.createElement('style');
 feedProgressStyles.textContent = `
   .x-article-feed-progress {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: rgba(29, 155, 240, 0.2);
-    z-index: 10;
-    pointer-events: none;
+    width: 100%;
+    height: 4px;
+    background: rgba(29, 155, 240, 0.15);
+    border-radius: 0 0 12px 12px;
+    overflow: hidden;
+    margin-top: 0;
   }
   .x-article-feed-progress-fill {
     height: 100%;
     background: linear-gradient(90deg, #1d9bf0, #1a8cd8);
     transition: width 0.3s ease;
-    box-shadow: 0 0 8px rgba(29, 155, 240, 0.6);
-  }
-  .x-article-feed-progress-container {
-    position: relative;
+    box-shadow: 0 0 6px rgba(29, 155, 240, 0.5);
   }
 `;
 document.head.appendChild(feedProgressStyles);
@@ -432,10 +456,11 @@ async function loadProgressCache(): Promise<void> {
 
 function findProgressForArticle(articleElement: Element): StoredProgress | null {
   // Try to find the article URL from links within the element
-  const links = articleElement.querySelectorAll('a[href*="/status/"], a[href*="/articles/"]');
+  const links = Array.from(articleElement.querySelectorAll('a[href*="/status/"], a[href*="/articles/"]'));
   
-  for (const link of links) {
-    const href = (link as HTMLAnchorElement).href;
+  for (let i = 0; i < links.length; i++) {
+    const link = links[i] as HTMLAnchorElement;
+    const href = link.href;
     if (!href) continue;
     
     // Try direct URL match
@@ -463,48 +488,70 @@ function addProgressBarToArticle(articleElement: Element, progress: StoredProgre
     return;
   }
   
-  // Find the article card container - look for the card with content
-  const cardContainer = articleElement.querySelector('[data-testid="card.wrapper"]') ||
-                        articleElement.querySelector('[data-testid="card.layoutLarge.media"]') ||
-                        articleElement.closest('article');
+  // Find the article card container - specifically target X article cards
+  // Article cards have data-testid="article-cover-image" inside them
+  let articleCard = articleElement.querySelector('[data-testid="article-cover-image"]')?.parentElement;
   
-  if (!cardContainer) return;
-  
-  // Make container relative if needed
-  const computedStyle = window.getComputedStyle(cardContainer);
-  if (computedStyle.position === 'static') {
-    (cardContainer as HTMLElement).style.position = 'relative';
+  // If we found the article cover, get the main article container
+  if (!articleCard) {
+    // Fallback: look for card wrapper or generic card structure
+    articleCard = articleElement.querySelector('[data-testid="card.wrapper"]') as HTMLElement;
   }
-  cardContainer.classList.add('x-article-feed-progress-container');
   
-  // Create progress bar
+  if (!articleCard) {
+    console.log('[X Article Progress] Could not find article card container');
+    return;
+  }
+  
+  // Create progress bar element
   const progressBar = document.createElement('div');
   progressBar.className = 'x-article-feed-progress';
   progressBar.innerHTML = `<div class="x-article-feed-progress-fill" style="width: ${progress.scrollPercentage}%"></div>`;
   progressBar.title = `${progress.scrollPercentage}% read`;
   
-  cardContainer.appendChild(progressBar);
-  console.log(`[X Article Progress] Added progress bar (${progress.scrollPercentage}%) to article`);
+  // Insert the progress bar at the bottom of the article card (inside the card)
+  articleCard.appendChild(progressBar);
+  
+  console.log(`[X Article Progress] Added progress bar (${progress.scrollPercentage}%) to article card`);
 }
 
 function scanFeedForArticles(): void {
   if (!cacheLoaded || progressCache.size === 0) return;
   
-  // Find all tweet/article containers in the feed
-  const articleContainers = document.querySelectorAll([
-    'article[data-testid="tweet"]',
-    '[data-testid="cellInnerDiv"]',
-    '[data-testid="card.wrapper"]'
-  ].join(','));
+  // Find all article cards specifically - these have the article-cover-image testid
+  const articleCoverImages = document.querySelectorAll('[data-testid="article-cover-image"]');
   
-  articleContainers.forEach(container => {
-    // Skip if already processed
-    if (container.hasAttribute('data-progress-checked')) return;
-    container.setAttribute('data-progress-checked', 'true');
+  articleCoverImages.forEach(coverImage => {
+    // Get the parent article card container
+    const articleCard = coverImage.parentElement;
+    if (!articleCard) return;
     
-    const progress = findProgressForArticle(container);
+    // Skip if already processed
+    if (articleCard.hasAttribute('data-progress-checked')) return;
+    articleCard.setAttribute('data-progress-checked', 'true');
+    
+    // Find the closest tweet container to search for URLs
+    const tweetContainer = articleCard.closest('article[data-testid="tweet"]') || 
+                           articleCard.closest('[data-testid="cellInnerDiv"]') ||
+                           articleCard.parentElement;
+    
+    if (!tweetContainer) return;
+    
+    const progress = findProgressForArticle(tweetContainer);
     if (progress && progress.scrollPercentage > 0) {
-      addProgressBarToArticle(container, progress);
+      addProgressBarToArticle(tweetContainer, progress);
+    }
+  });
+  
+  // Also scan for card.wrapper in case some articles use different structure
+  const cardWrappers = document.querySelectorAll('[data-testid="card.wrapper"]');
+  cardWrappers.forEach(wrapper => {
+    if (wrapper.hasAttribute('data-progress-checked')) return;
+    wrapper.setAttribute('data-progress-checked', 'true');
+    
+    const progress = findProgressForArticle(wrapper);
+    if (progress && progress.scrollPercentage > 0) {
+      addProgressBarToArticle(wrapper, progress);
     }
   });
 }

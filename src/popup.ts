@@ -20,18 +20,67 @@ interface Settings {
 }
 
 const MAX_AUTHORS = 3;
+let currentFilter: 'pending' | 'finished' | 'settings' = 'pending';
+
+// Filter tabs (Pending/Finished within Library)
+document.querySelectorAll('.filter-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const filter = tab.getAttribute('data-filter') as 'pending' | 'finished' | 'settings';
+    
+    if (filter === 'settings') {
+      // Switch to profile/settings tab
+      switchToTab('profile');
+      return;
+    }
+    
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentFilter = filter;
+    loadArticles();
+  });
+});
 
 // Bottom navigation switching
 document.querySelectorAll('.nav-item').forEach(nav => {
   nav.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
-    nav.classList.add('active');
     const tabId = nav.getAttribute('data-tab');
-    document.getElementById(`${tabId}-tab`)?.classList.add('active');
+    if (tabId) {
+      switchToTab(tabId);
+    }
   });
 });
+
+function switchToTab(tabId: string): void {
+  // Update nav items
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  
+  const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+  navItem?.classList.add('active');
+  document.getElementById(`${tabId}-tab`)?.classList.add('active');
+  
+  // Show/hide filter tabs based on current tab
+  const filterTabsContainer = document.getElementById('filter-tabs-container');
+  if (filterTabsContainer) {
+    if (tabId === 'library') {
+      filterTabsContainer.classList.remove('hidden');
+      // Reset settings tab highlight if we're back on library
+      document.querySelectorAll('.filter-tab').forEach(t => {
+        const f = t.getAttribute('data-filter');
+        t.classList.toggle('active', f === currentFilter);
+      });
+    } else {
+      filterTabsContainer.classList.add('hidden');
+    }
+  }
+  
+  // If switching to profile, highlight settings in filter tabs
+  if (tabId === 'profile') {
+    document.querySelectorAll('.filter-tab').forEach(t => {
+      t.classList.toggle('active', t.getAttribute('data-filter') === 'settings');
+    });
+  }
+}
 
 function normalizeUrl(url: string): string {
   try {
@@ -62,14 +111,27 @@ async function loadArticles(): Promise<void> {
     }
   }
 
-  const articles = Array.from(articlesMap.values());
+  let articles = Array.from(articlesMap.values());
   articles.sort((a, b) => b.lastRead - a.lastRead);
 
+  // Filter based on current filter
+  if (currentFilter === 'pending') {
+    articles = articles.filter(a => a.scrollPercentage < 100);
+  } else if (currentFilter === 'finished') {
+    articles = articles.filter(a => a.scrollPercentage >= 100);
+  }
+
   if (articles.length === 0) {
+    const emptyMessage = currentFilter === 'pending' 
+      ? 'No pending articles.<br>Start reading on X to track progress!'
+      : 'No finished articles yet.<br>Complete reading articles to see them here!';
+    
     container.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">📖</div>
-        <p>No articles yet.<br>Start reading on X to track progress!</p>
+        <div class="empty-state-icon">
+          <span class="material-symbols-outlined">${currentFilter === 'pending' ? 'auto_stories' : 'task_alt'}</span>
+        </div>
+        <p>${emptyMessage}</p>
       </div>
     `;
     return;
@@ -77,28 +139,39 @@ async function loadArticles(): Promise<void> {
 
   container.innerHTML = articles.map(article => `
     <div class="article-card" data-url="${escapeHtml(article.url)}">
-      ${article.image
-        ? `<img class="article-image" src="${escapeHtml(article.image)}" alt="" onerror="this.outerHTML='<div class=\\'article-image-placeholder\\'>📖</div>'">`
-        : '<div class="article-image-placeholder">📖</div>'
-      }
-      <div class="article-content">
-        <div class="article-title">${escapeHtml(article.title || 'Untitled Article')}</div>
-        <div class="article-author">@${escapeHtml(article.authorHandle || article.author || 'unknown')}</div>
-        <div class="article-meta">
-          <div class="progress-bar">
-            <div class="progress-fill" style="width: ${article.scrollPercentage}%"></div>
-          </div>
-          <div class="progress-text">${article.scrollPercentage}%</div>
+      <div class="article-main">
+        ${article.image
+          ? `<img class="article-image" src="${escapeHtml(article.image)}" alt="" onerror="this.outerHTML='<div class=\\'article-image-placeholder\\'><span class=\\'material-symbols-outlined\\'>article</span></div>'">`
+          : '<div class="article-image-placeholder"><span class="material-symbols-outlined">article</span></div>'
+        }
+        <div class="article-content">
+          <div class="article-title">${escapeHtml(article.title || 'Untitled Article')}</div>
+          <div class="article-author">@${escapeHtml(article.authorHandle || article.author || 'unknown')}</div>
+        </div>
+        <button class="remove-btn" data-url="${escapeHtml(article.url)}">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="progress-section">
+        <div class="progress-header">
+          <span class="progress-label">Reading Progress</span>
+          <span class="progress-value">${article.scrollPercentage}%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: ${article.scrollPercentage}%"></div>
         </div>
       </div>
-      <button class="remove-btn" data-url="${escapeHtml(article.url)}">✕</button>
     </div>
-  `).join('');
+  `).join('') + `
+    <div class="end-of-list">
+      <p>End of List</p>
+    </div>
+  `;
 
   // Add click handlers
   container.querySelectorAll('.article-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).classList.contains('remove-btn')) return;
+      if ((e.target as HTMLElement).closest('.remove-btn')) return;
       const url = card.getAttribute('data-url');
       if (url) chrome.tabs.create({ url });
     });
@@ -149,7 +222,9 @@ async function loadAuthors(): Promise<void> {
   if (authors.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">👤</div>
+        <div class="empty-state-icon">
+          <span class="material-symbols-outlined">person_add</span>
+        </div>
         <p>No authors followed yet.<br>Add authors to get article notifications.</p>
       </div>
     `;
@@ -163,7 +238,9 @@ async function loadAuthors(): Promise<void> {
         <div class="author-name">${escapeHtml(author.displayName || author.username)}</div>
         <div class="author-handle">@${escapeHtml(author.username)}</div>
       </div>
-      <button class="author-remove" data-username="${escapeHtml(author.username)}">✕</button>
+      <button class="author-remove" data-username="${escapeHtml(author.username)}">
+        <span class="material-symbols-outlined">close</span>
+      </button>
     </div>
   `).join('');
 
@@ -273,6 +350,17 @@ document.getElementById('check-articles-btn')?.addEventListener('click', async (
   });
 });
 
+// FAB click handler
+document.getElementById('fab-btn')?.addEventListener('click', async () => {
+  // Open current tab's URL if it's an X article
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.url && (tab.url.includes('x.com') || tab.url.includes('twitter.com'))) {
+    showToast('Tracking current article...');
+  } else {
+    showToast('Open an X article to track');
+  }
+});
+
 // Helpers
 function escapeHtml(text: string): string {
   const div = document.createElement('div');
@@ -303,7 +391,9 @@ async function loadNewArticles(): Promise<void> {
   if (articles.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">✨</div>
+        <div class="empty-state-icon">
+          <span class="material-symbols-outlined">explore</span>
+        </div>
         <p>No new articles yet.<br>Add authors and check for articles!</p>
       </div>
     `;
@@ -312,14 +402,16 @@ async function loadNewArticles(): Promise<void> {
 
   container.innerHTML = articles.map(article => `
     <div class="article-card" data-url="${escapeHtml(article.url)}">
-      ${article.image
-        ? `<img class="article-image" src="${escapeHtml(article.image)}" alt="" onerror="this.outerHTML='<div class=\\'article-image-placeholder\\'>✨</div>'">`
-        : '<div class="article-image-placeholder">✨</div>'
-      }
-      <div class="article-content">
-        <div class="article-title">${escapeHtml(article.title || 'New Article')}</div>
-        <div class="article-author">@${escapeHtml(article.author || 'unknown')}</div>
-        <div class="progress-text" style="margin-top: 4px;">${formatTimeAgo(article.timestamp)}</div>
+      <div class="article-main">
+        ${article.image
+          ? `<img class="article-image" src="${escapeHtml(article.image)}" alt="" onerror="this.outerHTML='<div class=\\'article-image-placeholder\\'><span class=\\'material-symbols-outlined\\'>explore</span></div>'">`
+          : '<div class="article-image-placeholder"><span class="material-symbols-outlined">explore</span></div>'
+        }
+        <div class="article-content">
+          <div class="article-title">${escapeHtml(article.title || 'New Article')}</div>
+          <div class="article-author">@${escapeHtml(article.author || 'unknown')}</div>
+          <div class="article-time">${formatTimeAgo(article.timestamp)}</div>
+        </div>
       </div>
     </div>
   `).join('');
