@@ -248,6 +248,7 @@ async function showNotification(author: Author, article: ArticleInfo, url: strin
     preview: article.preview_text?.substring(0, 150),
     image: article.cover_media_img_url,
     author: author.username,
+    authorName: article.author?.name || author.displayName,
     timestamp: Date.now()
   });
 
@@ -257,7 +258,12 @@ async function showNotification(author: Author, article: ArticleInfo, url: strin
   }
 
   await chrome.storage.local.set({ new_articles: newArticles });
-  console.log(`[XArticle] Stored article in new_articles list`);
+  
+  // Update extension badge to show article count
+  chrome.action.setBadgeText({ text: newArticles.length.toString() });
+  chrome.action.setBadgeBackgroundColor({ color: '#1DA1F2' });
+  
+  console.log(`[XArticle] Stored article in new_articles list, badge updated: ${newArticles.length}`);
 }
 
 // Handle notification clicks
@@ -271,20 +277,6 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
 
   chrome.notifications.clear(notificationId);
   await chrome.storage.local.remove(`notification_${notificationId}`);
-});
-
-// Handle messages from popup
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === 'CHECK_NEW_ARTICLES') {
-    console.log('[XArticle] Manual check triggered from popup');
-    checkNewArticles().then(() => {
-      sendResponse({ success: true });
-    }).catch((error) => {
-      console.error('[XArticle] Check failed:', error);
-      sendResponse({ success: false, error: error.message });
-    });
-    return true;
-  }
 });
 
 // Schedule periodic checks
@@ -304,16 +296,55 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+// Update badge based on current Discover article count
+async function updateBadge(): Promise<void> {
+  const result = await chrome.storage.local.get('new_articles');
+  const articles: any[] = result.new_articles || [];
+  
+  if (articles.length > 0) {
+    chrome.action.setBadgeText({ text: articles.length.toString() });
+    chrome.action.setBadgeBackgroundColor({ color: '#1DA1F2' });
+    console.log(`[XArticle] Badge set to ${articles.length}`);
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+// Handle message to clear badge (from popup when viewing Discover)
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'CHECK_NEW_ARTICLES') {
+    console.log('[XArticle] Manual check triggered from popup');
+    checkNewArticles().then(() => {
+      sendResponse({ success: true });
+    }).catch((error) => {
+      console.error('[XArticle] Check failed:', error);
+      sendResponse({ success: false, error: error.message });
+    });
+    return true;
+  }
+  
+  if (message.type === 'CLEAR_BADGE') {
+    chrome.action.setBadgeText({ text: '' });
+    sendResponse({ success: true });
+    return true;
+  }
+});
+
 // Initialize on install
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[XArticle] Extension installed');
   scheduleCheck();
+  updateBadge();
 });
 
 // Check on startup
 chrome.runtime.onStartup.addListener(() => {
   console.log('[XArticle] Extension started');
   scheduleCheck();
+  updateBadge();
 });
+
+// Initialize badge on script load
+updateBadge();
 
 console.log('[XArticle] Background script loaded');

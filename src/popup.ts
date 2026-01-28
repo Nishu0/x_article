@@ -20,19 +20,13 @@ interface Settings {
 }
 
 const MAX_AUTHORS = 3;
-let currentFilter: 'pending' | 'finished' | 'settings' = 'pending';
+let currentFilter: 'pending' | 'finished' = 'pending';
 let searchQuery = '';
 
 // Filter tabs (Pending/Finished within Library)
 document.querySelectorAll('.filter-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    const filter = tab.getAttribute('data-filter') as 'pending' | 'finished' | 'settings';
-    
-    if (filter === 'settings') {
-      // Switch to profile/settings tab
-      switchToTab('profile');
-      return;
-    }
+    const filter = tab.getAttribute('data-filter') as 'pending' | 'finished';
     
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
@@ -65,7 +59,7 @@ function switchToTab(tabId: string): void {
   if (filterTabsContainer) {
     if (tabId === 'library') {
       filterTabsContainer.classList.remove('hidden');
-      // Reset settings tab highlight if we're back on library
+      // Update filter tab highlighting
       document.querySelectorAll('.filter-tab').forEach(t => {
         const f = t.getAttribute('data-filter');
         t.classList.toggle('active', f === currentFilter);
@@ -75,11 +69,9 @@ function switchToTab(tabId: string): void {
     }
   }
   
-  // If switching to profile, highlight settings in filter tabs
-  if (tabId === 'profile') {
-    document.querySelectorAll('.filter-tab').forEach(t => {
-      t.classList.toggle('active', t.getAttribute('data-filter') === 'settings');
-    });
+  // Clear badge when viewing Discover
+  if (tabId === 'discover') {
+    chrome.action.setBadgeText({ text: '' });
   }
 }
 
@@ -404,6 +396,9 @@ async function loadNewArticles(): Promise<void> {
 
   container.innerHTML = articles.map(article => `
     <div class="article-card" data-url="${escapeHtml(article.url)}">
+      <button class="remove-btn discover-remove" data-url="${escapeHtml(article.url)}" title="Remove from Discover">
+        <span class="material-symbols-outlined">close</span>
+      </button>
       <div class="article-main">
         ${article.image
           ? `<img class="article-image" src="${escapeHtml(article.image)}" alt="" onerror="this.outerHTML='<div class=\\'article-image-placeholder\\'><span class=\\'material-symbols-outlined\\'>explore</span></div>'">`
@@ -418,12 +413,83 @@ async function loadNewArticles(): Promise<void> {
     </div>
   `).join('');
 
-  container.querySelectorAll('.article-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const url = card.getAttribute('data-url');
-      if (url) chrome.tabs.create({ url });
+  // Handle close button clicks
+  container.querySelectorAll('.discover-remove').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const url = (btn as HTMLElement).getAttribute('data-url');
+      if (url) {
+        await removeFromDiscover(url);
+        loadNewArticles();
+        showToast('Article removed');
+      }
     });
   });
+
+  // Handle article card clicks - move to pending and open
+  container.querySelectorAll('.article-card').forEach(card => {
+    card.addEventListener('click', async () => {
+      const url = card.getAttribute('data-url');
+      if (url) {
+        await moveDiscoverToPending(url);
+        chrome.tabs.create({ url });
+        loadNewArticles();
+      }
+    });
+  });
+}
+
+// Remove an article from Discover list
+async function removeFromDiscover(url: string): Promise<void> {
+  const result = await chrome.storage.local.get('new_articles');
+  const articles: any[] = result.new_articles || [];
+  const filtered = articles.filter(a => a.url !== url);
+  await chrome.storage.local.set({ new_articles: filtered });
+  
+  // Update badge
+  if (filtered.length > 0) {
+    chrome.action.setBadgeText({ text: filtered.length.toString() });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+// Move an article from Discover to Pending (Library)
+async function moveDiscoverToPending(url: string): Promise<void> {
+  const result = await chrome.storage.local.get(['new_articles', 'articles']);
+  const newArticles: any[] = result.new_articles || [];
+  const articles: Record<string, any> = result.articles || {};
+  
+  const article = newArticles.find(a => a.url === url);
+  if (article) {
+    // Add to library as pending (0% progress)
+    const urlHash = hashUrl(url);
+    articles[urlHash] = {
+      url: article.url,
+      scrollPosition: 0,
+      scrollPercentage: 0,
+      lastRead: Date.now(),
+      title: article.title,
+      image: article.image,
+      author: article.authorName,
+      authorHandle: article.author
+    };
+    
+    // Remove from Discover
+    const filtered = newArticles.filter(a => a.url !== url);
+    
+    await chrome.storage.local.set({ 
+      articles,
+      new_articles: filtered 
+    });
+    
+    // Update badge
+    if (filtered.length > 0) {
+      chrome.action.setBadgeText({ text: filtered.length.toString() });
+    } else {
+      chrome.action.setBadgeText({ text: '' });
+    }
+  }
 }
 
 function formatTimeAgo(timestamp: number): string {
