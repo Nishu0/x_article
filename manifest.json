@@ -1,10 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "XArticle",
+  "name": "XArticles",
   "version": "1.0.0",
   "description": "Tracks reading progress on X long-form articles, auto-scrolls to saved position, and notifies you of new articles from favorite authors",
-  "permissions": ["storage", "notifications", "alarms"],
-  "host_permissions": ["https://api.twitterapi.io/*"],
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://api.twitterapi.io/*"
+  ],
   "action": {
     "default_popup": "dist/popup.html",
     "default_icon": {
@@ -24,8 +30,13 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://x.com/*", "https://twitter.com/*"],
-      "js": ["dist/content.js"],
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
       "run_at": "document_idle"
     }
   ]

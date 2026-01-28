@@ -128,16 +128,83 @@ async function saveProgress(): Promise<void> {
       return;
     }
     
-    // Use document scrolling metrics
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
-    const docHeight = Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight
-    ) - window.innerHeight;
+    // Find the article modal's scroll container
+    // X's article modal has its own scrollable div
+    let scrollTop = 0;
+    
+    // Fallback to window scroll
+    scrollTop = window.scrollY || document.documentElement.scrollTop;
+    
+    // Find the article end marker - look for "Post your reply" section
+    // This marks where the article ends and comments begin
+    let articleEndPosition = 0;
+    let replyBoxVisible = false;
+    
+    // Method 1: Look for text containing "Post your reply" (the reply input area)
+    const allText = Array.from(document.querySelectorAll('span, div'));
+    for (const el of allText) {
+      if (el.textContent?.trim() === 'Post your reply') {
+        const rect = el.getBoundingClientRect();
+        const position = rect.top + scrollTop;
+        // Only use if it's far down the page (not a header element)
+        if (position > 500) {
+          articleEndPosition = position;
+          if (rect.top >= -50 && rect.top < window.innerHeight) {
+            replyBoxVisible = true;
+          }
+          break;
+        }
+      }
+    }
+    
+    // Method 2: Find the tweet textarea (reply input area)
+    if (articleEndPosition === 0) {
+      const replyTextarea = document.querySelector('[data-testid="tweetTextarea_0"]');
+      if (replyTextarea) {
+        const rect = replyTextarea.getBoundingClientRect();
+        const position = rect.top + scrollTop;
+        if (position > 500) {
+          articleEndPosition = position;
+          if (rect.top >= -50 && rect.top < window.innerHeight) {
+            replyBoxVisible = true;
+          }
+        }
+      }
+    }
+    
+    // Method 3: Find the article content container and use its bottom
+    if (articleEndPosition === 0) {
+      const articleContainer = document.querySelector('[data-testid="twitterArticleReadView"]');
+      if (articleContainer) {
+        const rect = articleContainer.getBoundingClientRect();
+        articleEndPosition = rect.bottom + scrollTop;
+        if (rect.bottom >= 0 && rect.bottom < window.innerHeight) {
+          replyBoxVisible = true;
+        }
+      }
+    }
+    
+    // Fallback: if no engagement bar found, use full document height
+    if (articleEndPosition === 0) {
+      articleEndPosition = Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight
+      );
+    }
+    
+    // If reply box is visible on screen, article is complete (100%)
+    let scrollPct: number;
+    if (replyBoxVisible) {
+      scrollPct = 100;
+    } else {
+      // Calculate progress relative to article end
+      const articleHeight = Math.max(1, articleEndPosition - window.innerHeight);
+      scrollPct = Math.round((scrollTop / articleHeight) * 100);
+      // Clamp between 0 and 100
+      scrollPct = Math.max(0, Math.min(100, scrollPct));
+    }
 
-    const scrollPct = docHeight > 0 ? Math.min(100, Math.round((scrollTop / docHeight) * 100)) : 0;
-
-    console.log(`[X Article Progress] Scroll: ${scrollTop}px, ${scrollPct}%`);
+    console.log(`[X Article Progress] Scroll: ${scrollTop}px, Article end: ${articleEndPosition}px, Progress: ${scrollPct}%${replyBoxVisible ? ' (reply visible)' : ''}`);
 
     // Don't save if at the very top
     if (scrollTop < 50) {
@@ -283,9 +350,29 @@ function isArticlePage(): boolean {
     }
   }
 
-  // Only track article and status pages
-  const pattern = /^https:\/\/(x\.com|twitter\.com)\/[^/]+\/(articles|status)\/.+/;
-  return pattern.test(url);
+  // Check 1: X Articles in fullscreen mode use /article/ in the URL
+  const isArticleUrl = /^https:\/\/(x\.com|twitter\.com)\/[^/]+\/article\/.+/.test(url);
+  if (isArticleUrl) {
+    console.log('[XArticle] Detected X Article (fullscreen mode) - will track');
+    return true;
+  }
+
+  // Check 2: X Articles in modal view still show /status/ URL but header says "Article"
+  const isStatusUrl = /^https:\/\/(x\.com|twitter\.com)\/[^/]+\/status\/.+/.test(url);
+  if (isStatusUrl) {
+    // Look for the header that says "Article" instead of "Post"
+    const headers = Array.from(document.querySelectorAll('h2[role="heading"]'));
+    for (const header of headers) {
+      const text = header.textContent?.trim().toLowerCase();
+      if (text === 'article') {
+        console.log('[XArticle] Detected X Article (modal view via header) - will track');
+        return true;
+      }
+    }
+  }
+
+  console.log('[XArticle] Not an X Article - skipping (regular post/thread)');
+  return false;
 }
 
 let currentUrl = "";
@@ -293,6 +380,9 @@ let scrollHandler: (() => void) | null = null;
 let isInitialized = false;
 
 async function initTracking(): Promise<void> {
+  // Wait for DOM to load before checking if it's an article
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   if (!isArticlePage()) {
     console.log("[X Article Progress] Not an article/status page, skipping.");
     return;
@@ -308,8 +398,8 @@ async function initTracking(): Promise<void> {
 
   console.log("[X Article Progress] Initializing on:", window.location.href);
 
-  // Wait for content to load
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  // Wait a bit more for content to fully load
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   // Check for saved progress
   const progress = await loadProgress();

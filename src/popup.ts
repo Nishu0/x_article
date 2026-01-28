@@ -21,6 +21,7 @@ interface Settings {
 
 const MAX_AUTHORS = 3;
 let currentFilter: 'pending' | 'finished' | 'settings' = 'pending';
+let searchQuery = '';
 
 // Filter tabs (Pending/Finished within Library)
 document.querySelectorAll('.filter-tab').forEach(tab => {
@@ -119,6 +120,16 @@ async function loadArticles(): Promise<void> {
     articles = articles.filter(a => a.scrollPercentage < 100);
   } else if (currentFilter === 'finished') {
     articles = articles.filter(a => a.scrollPercentage >= 100);
+  }
+
+  // Apply search filter
+  if (searchQuery.trim()) {
+    const query = searchQuery.toLowerCase();
+    articles = articles.filter(a => 
+      (a.title?.toLowerCase().includes(query)) ||
+      (a.author?.toLowerCase().includes(query)) ||
+      (a.authorHandle?.toLowerCase().includes(query))
+    );
   }
 
   if (articles.length === 0) {
@@ -350,16 +361,7 @@ document.getElementById('check-articles-btn')?.addEventListener('click', async (
   });
 });
 
-// FAB click handler
-document.getElementById('fab-btn')?.addEventListener('click', async () => {
-  // Open current tab's URL if it's an X article
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.url && (tab.url.includes('x.com') || tab.url.includes('twitter.com'))) {
-    showToast('Tracking current article...');
-  } else {
-    showToast('Open an X article to track');
-  }
-});
+
 
 // Helpers
 function escapeHtml(text: string): string {
@@ -431,6 +433,36 @@ function formatTimeAgo(timestamp: number): string {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
 }
+
+// Search functionality
+const searchBtn = document.getElementById('search-btn');
+const searchContainer = document.getElementById('search-container');
+const searchInput = document.getElementById('search-input') as HTMLInputElement;
+const searchClose = document.getElementById('search-close');
+
+searchBtn?.addEventListener('click', () => {
+  searchContainer?.classList.add('active');
+  searchInput?.focus();
+});
+
+searchClose?.addEventListener('click', () => {
+  searchContainer?.classList.remove('active');
+  if (searchInput) {
+    searchInput.value = '';
+    searchQuery = '';
+    loadArticles();
+  }
+});
+
+// Debounce search input
+let searchTimeout: number;
+searchInput?.addEventListener('input', (e) => {
+  clearTimeout(searchTimeout);
+  searchTimeout = window.setTimeout(() => {
+    searchQuery = (e.target as HTMLInputElement).value;
+    loadArticles();
+  }, 200);
+});
 
 // Initialize
 loadArticles();
