@@ -12,12 +12,17 @@ interface ArticleProgress {
 interface Author {
   username: string;
   displayName?: string;
+  profilePicture?: string;
   lastChecked?: number;
 }
 
 interface Settings {
   notificationsEnabled: boolean;
 }
+
+// API for fetching user info
+const API_KEY = '';
+const API_BASE = 'https://api.twitterapi.io/twitter';
 
 const MAX_AUTHORS = 3;
 let currentFilter: 'pending' | 'finished' = 'pending';
@@ -236,9 +241,12 @@ async function loadAuthors(): Promise<void> {
 
   container.innerHTML = authors.map(author => `
     <div class="author-card">
-      <div class="author-avatar">${author.username.charAt(0).toUpperCase()}</div>
+      ${author.profilePicture 
+        ? `<img class="author-avatar-img" src="${escapeHtml(author.profilePicture)}" alt="" onerror="this.outerHTML='<div class=\\'author-avatar\\'>${author.username.charAt(0).toUpperCase()}</div>'">`
+        : `<div class="author-avatar">${author.username.charAt(0).toUpperCase()}</div>`
+      }
       <div class="author-info">
-        <div class="author-name">${escapeHtml(author.displayName || author.username)}</div>
+        <div class="author-name" title="${escapeHtml(author.displayName || author.username)}">${escapeHtml(author.displayName || author.username)}</div>
         <div class="author-handle">@${escapeHtml(author.username)}</div>
       </div>
       <button class="author-remove" data-username="${escapeHtml(author.username)}">
@@ -259,6 +267,31 @@ async function loadAuthors(): Promise<void> {
   });
 }
 
+// Fetch user info from API (profile picture, display name)
+async function fetchUserInfo(username: string): Promise<{name: string, profilePicture: string} | null> {
+  try {
+    const response = await fetch(`${API_BASE}/user/info?userName=${username}`, {
+      headers: {
+        'X-API-Key': API_KEY
+      }
+    });
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    if (data.status === 'success' && data.data) {
+      return {
+        name: data.data.name || username,
+        profilePicture: data.data.profilePicture || ''
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('[XArticle] Error fetching user info:', error);
+    return null;
+  }
+}
+
 async function addAuthor(username: string): Promise<void> {
   const cleanUsername = username.replace('@', '').trim().toLowerCase();
   if (!cleanUsername) return;
@@ -276,8 +309,16 @@ async function addAuthor(username: string): Promise<void> {
     return;
   }
 
+  // Show loading state
+  showToast(`Looking up @${cleanUsername}...`);
+  
+  // Fetch user info from API
+  const userInfo = await fetchUserInfo(cleanUsername);
+  
   authors.push({
     username: cleanUsername,
+    displayName: userInfo?.name || cleanUsername,
+    profilePicture: userInfo?.profilePicture || '',
     lastChecked: Date.now()
   });
 
@@ -287,10 +328,41 @@ async function addAuthor(username: string): Promise<void> {
 }
 
 async function removeAuthor(username: string): Promise<void> {
-  const result = await chrome.storage.local.get('followed_authors');
+  const normalizedUsername = username.toLowerCase();
+  
+  const result = await chrome.storage.local.get(['followed_authors', 'seen_articles', 'new_articles']);
   const authors: Author[] = result.followed_authors || [];
-  const filtered = authors.filter(a => a.username.toLowerCase() !== username.toLowerCase());
-  await chrome.storage.local.set({ followed_authors: filtered });
+  const seenArticles: string[] = result.seen_articles || [];
+  const newArticles: any[] = result.new_articles || [];
+  
+  // Remove from followed authors
+  const filteredAuthors = authors.filter(a => a.username.toLowerCase() !== normalizedUsername);
+  
+  // Remove author's entries from seen_articles (format: username:tweetId)
+  const filteredSeenArticles = seenArticles.filter(entry => {
+    const [entryUsername] = entry.split(':');
+    return entryUsername !== normalizedUsername;
+  });
+  
+  // Remove author's articles from new_articles (Discover)
+  const filteredNewArticles = newArticles.filter(a => 
+    a.author?.toLowerCase() !== normalizedUsername
+  );
+  
+  await chrome.storage.local.set({ 
+    followed_authors: filteredAuthors,
+    seen_articles: filteredSeenArticles,
+    new_articles: filteredNewArticles
+  });
+  
+  // Update badge
+  if (filteredNewArticles.length > 0) {
+    chrome.action.setBadgeText({ text: filteredNewArticles.length.toString() });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+  
+  console.log(`[XArticle] Removed @${normalizedUsername} - cleared ${seenArticles.length - filteredSeenArticles.length} seen articles, ${newArticles.length - filteredNewArticles.length} discover articles`);
 }
 
 // Settings

@@ -32,7 +32,7 @@ interface ArticleInfo {
 }
 
 // HARDCODED API KEY - Replace with your key
-const API_KEY = '';
+const API_KEY = 'new1_d751f8bf2feb4833b41c945eef3ceed4';
 const API_BASE = 'https://api.twitterapi.io/twitter';
 const CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
@@ -40,10 +40,11 @@ const CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
 async function checkNewArticles(): Promise<void> {
   console.log('[XArticle] Starting article check...');
 
-  const result = await chrome.storage.local.get(['followed_authors', 'settings', 'seen_articles']);
+  const result = await chrome.storage.local.get(['followed_authors', 'settings', 'seen_articles', 'new_articles']);
   const authors: Author[] = result.followed_authors || [];
   const settings: Settings = result.settings || { notificationsEnabled: true };
   const seenArticles: Set<string> = new Set(result.seen_articles || []);
+  const existingNewArticles: any[] = result.new_articles || [];
 
   console.log(`[XArticle] Found ${authors.length} authors to check`);
   console.log(`[XArticle] Notifications enabled: ${settings.notificationsEnabled}`);
@@ -71,7 +72,13 @@ async function checkNewArticles(): Promise<void> {
         if (articleUrl) {
           console.log(`[XArticle] Found article URL in tweet ${tweet.id}: ${articleUrl}`);
 
-          if (!seenArticles.has(tweet.id)) {
+          // Use author-specific key for seen articles
+          const seenKey = `${author.username.toLowerCase()}:${tweet.id}`;
+          
+          // Also check if this URL is already in new_articles
+          const alreadyInDiscover = existingNewArticles.some(a => a.url === articleUrl);
+
+          if (!seenArticles.has(seenKey) && !alreadyInDiscover) {
             console.log(`[XArticle] New article! Fetching details...`);
 
             const articleInfo = await fetchArticleDetails(tweet.id);
@@ -79,12 +86,12 @@ async function checkNewArticles(): Promise<void> {
             if (articleInfo) {
               console.log(`[XArticle] Article title: ${articleInfo.title}`);
               await showNotification(author, articleInfo, articleUrl);
-              seenArticles.add(tweet.id);
+              seenArticles.add(seenKey);
             } else {
               console.log(`[XArticle] Could not fetch article details`);
             }
           } else {
-            console.log(`[XArticle] Already seen tweet ${tweet.id}`);
+            console.log(`[XArticle] Already seen tweet ${tweet.id} or already in Discover`);
           }
         }
       }
